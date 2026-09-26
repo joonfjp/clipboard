@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0a0a0f">
+<title>local clipboard</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --card: rgba(255, 255, 255, 0.035);
+    --card-hover: rgba(255, 255, 255, 0.06);
+    --line: rgba(255, 255, 255, 0.08);
+    --text: #ececf1;
+    --dim: #8a8a99;
+    --accent: #a78bfa;
+    --accent2: #22d3ee;
+    --danger: #f87171;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background:
+      radial-gradient(900px 500px at 15% -10%, rgba(167, 139, 250, 0.14), transparent 60%),
+      radial-gradient(800px 500px at 110% 10%, rgba(34, 211, 238, 0.10), transparent 60%),
+      var(--bg);
+    background-attachment: fixed;
+    color: var(--text);
+    font: 15px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 680px; margin: 0 auto; padding: 56px 20px 80px; }
+
+  header {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 28px;
+    animation: rise 0.7s var(--ease) both;
+  }
+  header img { width: 34px; height: 34px; border-radius: 10px; box-shadow: 0 6px 24px rgba(167, 139, 250, 0.35); }
+  header h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+  header button.clear {
+    width: auto; height: 30px; padding: 0 12px; font: inherit; font-size: 13px;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease, opacity 0.3s ease, transform 0.15s var(--ease);
+  }
+  header button.clear:hover, header button.clear.confirm {
+    color: var(--danger); border-color: rgba(248, 113, 113, 0.3); background: rgba(248, 113, 113, 0.08);
+  }
+  header button.clear.hidden { opacity: 0; pointer-events: none; }
+  header .count { margin-left: auto; color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+  .composer {
+    position: relative; border-radius: 16px; padding: 1px;
+    background: var(--line);
+    transition: background 0.4s var(--ease), box-shadow 0.4s var(--ease);
+    animation: rise 0.7s 0.06s var(--ease) both;
+  }
+  .composer:focus-within {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    box-shadow: 0 10px 40px -10px rgba(167, 139, 250, 0.45);
+  }
+  .composer textarea {
+    display: block; width: 100%; resize: none; border: 0; outline: 0;
+    background: #111118; color: var(--text); border-radius: 15px;
+    padding: 16px 18px; font: inherit; font-size: 16px; max-height: 40vh;
+  }
+  .composer textarea::placeholder { color: #5c5c6b; }
+  .hint { margin: 10px 4px 26px; color: #5c5c6b; font-size: 12px; animation: rise 0.7s 0.12s var(--ease) both; }
+  kbd {
+    font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1px 6px; border-radius: 5px;
+    border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); color: var(--dim);
+  }
+
+  ul { list-style: none; margin: 0; padding: 0; }
+  .clip {
+    display: grid; grid-template-rows: 1fr; margin-bottom: 10px;
+    transition: grid-template-rows 0.35s var(--ease), margin 0.35s var(--ease), opacity 0.25s ease, transform 0.35s var(--ease);
+  }
+  .clip.entering { animation: enter 0.5s var(--ease) both; }
+  .clip.leaving { grid-template-rows: 0fr; margin-bottom: 0; opacity: 0; transform: translateX(24px) scale(0.98); }
+  .clip > div { min-height: 0; overflow: hidden; }
+  .card {
+    display: flex; gap: 14px; align-items: flex-start;
+    padding: 14px 14px 14px 18px; border: 1px solid var(--line); border-radius: 14px;
+    background: var(--card); backdrop-filter: blur(8px); cursor: pointer; user-select: none;
+    transition: background 0.25s ease, border-color 0.25s ease, transform 0.2s var(--ease);
+  }
+  .card:hover { background: var(--card-hover); border-color: rgba(255, 255, 255, 0.12); }
+  .card:active { transform: scale(0.99); }
+  .card.flash { animation: flash 0.7s var(--ease); }
+  .body { flex: 1; min-width: 0; }
+  .text {
+    margin: 0; white-space: pre-wrap; word-break: break-word;
+    font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text);
+    max-height: 14em; overflow: auto;
+  }
+  .meta { margin-top: 6px; font-size: 12px; color: #5c5c6b; }
+  .actions { display: flex; gap: 6px; opacity: 0.55; transition: opacity 0.25s ease; }
+  .card:hover .actions, .card:focus-within .actions { opacity: 1; }
+  @media (hover: none) { .actions { opacity: 1; } }
+
+  button {
+    position: relative; display: grid; place-items: center;
+    width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.03); color: var(--dim); cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease, transform 0.15s var(--ease);
+  }
+  button:hover { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+  button:active { transform: scale(0.9); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.remove:hover { color: var(--danger); border-color: rgba(248, 113, 113, 0.3); background: rgba(248, 113, 113, 0.08); }
+  button svg { width: 16px; height: 16px; grid-area: 1 / 1; transition: transform 0.35s var(--ease), opacity 0.2s ease; }
+  button .check { opacity: 0; transform: scale(0.4) rotate(-30deg); color: #4ade80; }
+  button.copied { border-color: rgba(74, 222, 128, 0.35); background: rgba(74, 222, 128, 0.08); }
+  button.copied .copy-icon { opacity: 0; transform: scale(0.4) rotate(30deg); }
+  button.copied .check { opacity: 1; transform: none; }
+
+  .empty {
+    text-align: center; color: #5c5c6b; padding: 48px 0; font-size: 14px;
+    transition: opacity 0.4s ease, transform 0.4s var(--ease);
+  }
+  .empty.hidden { opacity: 0; transform: translateY(-6px); pointer-events: none; position: absolute; }
+
+  @keyframes flash {
+    from { border-color: rgba(74, 222, 128, 0.6); box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.12); }
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+  @keyframes enter {
+    from { grid-template-rows: 0fr; margin-bottom: 0; opacity: 0; transform: translateY(-8px) scale(0.98); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="/logo.svg" alt="">
+    <h1>local clipboard</h1>
+    <span class="count" id="count"></span>
+    <button class="clear hidden" id="clear">Clear all</button>
+  </header>
+
+  <div class="composer">
+    <textarea id="input" rows="1" placeholder="Paste or type something…" autofocus></textarea>
+  </div>
+  <p class="hint"><kbd>Enter</kbd> to save · <kbd>Shift</kbd> + <kbd>Enter</kbd> for a new line · click to copy · right-click to remove</p>
+
+  <ul id="list"></ul>
+  <p class="empty" id="empty">Nothing here yet.</p>
+</main>
+
+<template id="tpl">
+  <li class="clip"><div>
+    <div class="card">
+      <div class="body"><pre class="text"></pre><div class="meta"></div></div>
+      <div class="actions">
+        <button class="copy" title="Copy" aria-label="Copy">
+          <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2.5"/><path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5"/></svg>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+        </button>
+        <button class="remove" title="Remove" aria-label="Remove">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+    </div>
+  </div></li>
+</template>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const input = $("input"), list = $("list"), empty = $("empty"), count = $("count"), tpl = $("tpl");
+  const clearBtn = $("clear");
+  const nodes = new Map();
+  let clips = [];
+
+  const api = (method, path, body) =>
+    fetch(path, { method, headers: { "Content-Type": "application/json" }, body: body && JSON.stringify(body) })
+      .then((r) => (r.status === 204 ? null : r.json()));
+
+  function ago(ms) {
+    const s = Math.max(0, (Date.now() - ms) / 1000);
+    if (s < 45) return "just now";
+    if (s < 3600) return `${Math.round(s / 60)}m ago`;
+    if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+    return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch {}
+    // Fallback for plain-http LAN access, where the async clipboard API is unavailable.
+    const ta = Object.assign(document.createElement("textarea"), { value: text, readOnly: true });
+    ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+    document.body.append(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch {}
+    ta.remove();
+    return ok;
+  }
+
+  function makeNode(clip) {
+    const el = tpl.content.firstElementChild.cloneNode(true);
+    el.classList.add("entering");
+    el.addEventListener("animationend", (e) => e.target === el && el.classList.remove("entering"));
+    el.querySelector(".text").textContent = clip.text;
+    const card = el.querySelector(".card"), copyBtn = el.querySelector(".copy");
+    const remove = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clips = clips.filter((c) => c.id !== clip.id);
+      render();
+      api("DELETE", `/api/clips/${clip.id}`);
+    };
+    card.onclick = async () => {
+      if (!(await copyText(clip.text))) return;
+      copyBtn.classList.add("copied");
+      card.classList.remove("flash");
+      void card.offsetWidth; // restart the flash animation
+      card.classList.add("flash");
+      clearTimeout(copyBtn._t);
+      copyBtn._t = setTimeout(() => copyBtn.classList.remove("copied"), 1400);
+    };
+    card.oncontextmenu = remove;
+    el.querySelector(".remove").onclick = remove;
+    return el;
+  }
+
+  function render() {
+    const ids = new Set(clips.map((c) => c.id));
+    let gone = 0;
+    for (const [id, el] of nodes) {
+      if (ids.has(id)) continue;
+      nodes.delete(id);
+      const delay = Math.min(gone++, 12) * 35; // stagger when many leave at once
+      el.style.transitionDelay = `${delay}ms`;
+      el.classList.add("leaving");
+      setTimeout(() => el.remove(), 400 + delay);
+    }
+    let prev = null;
+    for (const clip of clips) {
+      let el = nodes.get(clip.id);
+      if (!el) nodes.set(clip.id, (el = makeNode(clip)));
+      // Skip nodes that are animating out so they don't make the rest look out of order.
+      let ref = prev ? prev.nextSibling : list.firstChild;
+      while (ref && ref.classList.contains("leaving")) ref = ref.nextSibling;
+      if (el !== ref) list.insertBefore(el, ref);
+      el.querySelector(".meta").textContent = ago(clip.at);
+      prev = el;
+    }
+    empty.classList.toggle("hidden", clips.length > 0);
+    clearBtn.classList.toggle("hidden", clips.length === 0);
+    count.textContent = clips.length ? `${clips.length} item${clips.length === 1 ? "" : "s"}` : "";
+  }
+
+  async function refresh() {
+    if (document.hidden) return;
+    try { clips = await api("GET", "/api/clips"); render(); } catch {}
+  }
+
+  function grow() {
+    input.style.height = "auto";
+    input.style.height = input.scrollHeight + "px";
+  }
+
+  // Two-step: first click arms, second click within 3s clears.
+  clearBtn.onclick = () => {
+    if (!clearBtn.classList.contains("confirm")) {
+      clearBtn.classList.add("confirm");
+      clearBtn.textContent = "Click to confirm";
+      clearBtn._t = setTimeout(disarm, 3000);
+      return;
+    }
+    disarm();
+    clips = [];
+    render();
+    api("DELETE", "/api/clips");
+  };
+  function disarm() {
+    clearTimeout(clearBtn._t);
+    clearBtn.classList.remove("confirm");
+    clearBtn.textContent = "Clear all";
+  }
+
+  input.addEventListener("input", grow);
+  input.addEventListener("keydown", async (e) => {
+    if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+    e.preventDefault();
+    const text = input.value;
+    if (!text.trim()) return;
+    input.value = "";
+    grow();
+    const clip = await api("POST", "/api/clips", { text });
+    if (clip && clip.id) { clips = [clip, ...clips.filter((c) => c.id !== clip.id)]; render(); }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "/" && document.activeElement !== input) { e.preventDefault(); input.focus(); }
+  });
+  document.addEventListener("visibilitychange", refresh);
+
+  refresh();
+  setInterval(refresh, 3000);
+</script>
+</body>
+</html>
