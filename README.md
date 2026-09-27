@@ -2,7 +2,7 @@
 
 # local clipboard
 
-A tiny shared clipboard for your local network. Type or paste something, hit Enter, and grab it from any other device.
+A tiny shared clipboard and prompt library for your local network. Type or paste something, hit Enter, and grab it from any other device.
 
 ## Run
 
@@ -16,6 +16,7 @@ Then open the printed URL on any device on the same network. No dependencies bey
 ## Use
 
 - **Enter** saves an entry, **Shift+Enter** adds a new line, **/** jumps to the input
+- The **Prompts** tab stores reusable prompts with a title; clicking one copies its prompt text
 - **Click** an entry to copy it, **right-click** to remove it (the buttons do the same)
 - **Clear all** at the top wipes everything (click twice to confirm)
 - Entries are stored in `clips.json` (set another path with `--data`) and sync across open tabs every few seconds

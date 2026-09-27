@@ -49,6 +49,20 @@
   header button.clear.hidden { opacity: 0; pointer-events: none; }
   header .count { margin-left: auto; color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
 
+  .tabs {
+    display: flex; gap: 5px; width: fit-content; margin-bottom: 20px; padding: 4px;
+    border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, 0.025);
+    animation: rise 0.7s 0.03s var(--ease) both;
+  }
+  .tabs button {
+    width: auto; height: 34px; padding: 0 14px; border: 0; border-radius: 8px;
+    font: inherit; font-size: 13px; font-weight: 600; background: transparent;
+  }
+  .tabs button[aria-selected="true"] {
+    color: var(--text); background: rgba(255, 255, 255, 0.09); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  }
+  .view[hidden] { display: none; }
+
   .composer {
     position: relative; border-radius: 16px; padding: 1px;
     background: var(--line);
@@ -59,12 +73,18 @@
     background: linear-gradient(135deg, var(--accent), var(--accent2));
     box-shadow: 0 10px 40px -10px rgba(167, 139, 250, 0.45);
   }
-  .composer textarea {
-    display: block; width: 100%; resize: none; border: 0; outline: 0;
-    background: #111118; color: var(--text); border-radius: 15px;
+  .composer-inner { overflow: hidden; border-radius: 15px; background: #111118; }
+  .composer textarea, .composer input {
+    display: block; width: 100%; border: 0; outline: 0;
+    background: transparent; color: var(--text);
     padding: 16px 18px; font: inherit; font-size: 16px; max-height: 40vh;
   }
-  .composer textarea::placeholder { color: #5c5c6b; }
+  .composer textarea { resize: none; }
+  .composer input.title {
+    padding-bottom: 11px; font-weight: 600; border-bottom: 1px solid var(--line);
+  }
+  .composer input.title + textarea { padding-top: 12px; }
+  .composer textarea::placeholder, .composer input::placeholder { color: #5c5c6b; }
   .hint { margin: 10px 4px 26px; color: #5c5c6b; font-size: 12px; animation: rise 0.7s 0.12s var(--ease) both; }
   kbd {
     font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1px 6px; border-radius: 5px;
@@ -89,6 +109,8 @@
   .card:active { transform: scale(0.99); }
   .card.flash { animation: flash 0.7s var(--ease); }
   .body { flex: 1; min-width: 0; }
+  .prompt-title { margin: 0 0 5px; font-size: 15px; line-height: 1.35; color: var(--text); }
+  .prompt-title:empty { display: none; }
   .text {
     margin: 0; white-space: pre-wrap; word-break: break-word;
     font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text);
@@ -142,19 +164,35 @@
     <button class="clear hidden" id="clear">Clear all</button>
   </header>
 
-  <div class="composer">
-    <textarea id="input" rows="1" placeholder="Paste or type something…" autofocus></textarea>
-  </div>
-  <p class="hint"><kbd>Enter</kbd> to save · <kbd>Shift</kbd> + <kbd>Enter</kbd> for a new line · click to copy · right-click to remove</p>
+  <nav class="tabs" aria-label="Content type">
+    <button id="clips-tab" role="tab" aria-selected="true" aria-controls="clips-view">Clipboard</button>
+    <button id="prompts-tab" role="tab" aria-selected="false" aria-controls="prompts-view">Prompts</button>
+  </nav>
 
-  <ul id="list"></ul>
-  <p class="empty" id="empty">Nothing here yet.</p>
+  <section class="view" id="clips-view" role="tabpanel" aria-labelledby="clips-tab">
+    <div class="composer"><div class="composer-inner">
+      <textarea id="input" rows="1" placeholder="Paste or type something…" autofocus></textarea>
+    </div></div>
+    <p class="hint"><kbd>Enter</kbd> to save · <kbd>Shift</kbd> + <kbd>Enter</kbd> for a new line · click to copy · right-click to remove</p>
+    <ul id="clips-list"></ul>
+    <p class="empty" id="clips-empty">Nothing here yet.</p>
+  </section>
+
+  <section class="view" id="prompts-view" role="tabpanel" aria-labelledby="prompts-tab" hidden>
+    <div class="composer"><div class="composer-inner">
+      <input class="title" id="prompt-title" type="text" placeholder="Prompt title" autocomplete="off">
+      <textarea id="prompt-input" rows="3" placeholder="Write your prompt…"></textarea>
+    </div></div>
+    <p class="hint"><kbd>Enter</kbd> to save · <kbd>Shift</kbd> + <kbd>Enter</kbd> for a new line · click a prompt to copy it</p>
+    <ul id="prompts-list"></ul>
+    <p class="empty" id="prompts-empty">No prompts saved yet.</p>
+  </section>
 </main>
 
 <template id="tpl">
   <li class="clip"><div>
     <div class="card">
-      <div class="body"><pre class="text"></pre><div class="meta"></div></div>
+      <div class="body"><h2 class="prompt-title"></h2><pre class="text"></pre><div class="meta"></div></div>
       <div class="actions">
         <button class="copy" title="Copy" aria-label="Copy">
           <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2.5"/><path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5"/></svg>
@@ -170,10 +208,11 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
-  const input = $("input"), list = $("list"), empty = $("empty"), count = $("count"), tpl = $("tpl");
-  const clearBtn = $("clear");
-  const nodes = new Map();
-  let clips = [];
+  const input = $("input"), promptTitle = $("prompt-title"), promptInput = $("prompt-input");
+  const count = $("count"), tpl = $("tpl"), clearBtn = $("clear");
+  const state = { clips: [], prompts: [] };
+  const nodes = { clips: new Map(), prompts: new Map() };
+  let active = "clips";
 
   const api = (method, path, body) =>
     fetch(path, { method, headers: { "Content-Type": "application/json" }, body: body && JSON.stringify(body) })
@@ -200,21 +239,22 @@
     return ok;
   }
 
-  function makeNode(clip) {
+  function makeNode(item, kind) {
     const el = tpl.content.firstElementChild.cloneNode(true);
     el.classList.add("entering");
     el.addEventListener("animationend", (e) => e.target === el && el.classList.remove("entering"));
-    el.querySelector(".text").textContent = clip.text;
+    el.querySelector(".prompt-title").textContent = item.title || "";
+    el.querySelector(".text").textContent = item.text;
     const card = el.querySelector(".card"), copyBtn = el.querySelector(".copy");
     const remove = (e) => {
       e.preventDefault();
       e.stopPropagation();
-      clips = clips.filter((c) => c.id !== clip.id);
-      render();
-      api("DELETE", `/api/clips/${clip.id}`);
+      state[kind] = state[kind].filter((entry) => entry.id !== item.id);
+      render(kind);
+      api("DELETE", `/api/${kind}/${item.id}`);
     };
     card.onclick = async () => {
-      if (!(await copyText(clip.text))) return;
+      if (!(await copyText(item.text))) return;
       copyBtn.classList.add("copied");
       card.classList.remove("flash");
       void card.offsetWidth; // restart the flash animation
@@ -227,41 +267,67 @@
     return el;
   }
 
-  function render() {
-    const ids = new Set(clips.map((c) => c.id));
+  function render(kind) {
+    const items = state[kind];
+    const itemNodes = nodes[kind];
+    const list = $(`${kind}-list`);
+    const empty = $(`${kind}-empty`);
+    const ids = new Set(items.map((item) => item.id));
     let gone = 0;
-    for (const [id, el] of nodes) {
+    for (const [id, el] of itemNodes) {
       if (ids.has(id)) continue;
-      nodes.delete(id);
+      itemNodes.delete(id);
       const delay = Math.min(gone++, 12) * 35; // stagger when many leave at once
       el.style.transitionDelay = `${delay}ms`;
       el.classList.add("leaving");
       setTimeout(() => el.remove(), 400 + delay);
     }
     let prev = null;
-    for (const clip of clips) {
-      let el = nodes.get(clip.id);
-      if (!el) nodes.set(clip.id, (el = makeNode(clip)));
+    for (const item of items) {
+      let el = itemNodes.get(item.id);
+      if (!el) itemNodes.set(item.id, (el = makeNode(item, kind)));
       // Skip nodes that are animating out so they don't make the rest look out of order.
       let ref = prev ? prev.nextSibling : list.firstChild;
       while (ref && ref.classList.contains("leaving")) ref = ref.nextSibling;
       if (el !== ref) list.insertBefore(el, ref);
-      el.querySelector(".meta").textContent = ago(clip.at);
+      el.querySelector(".meta").textContent = ago(item.at);
       prev = el;
     }
-    empty.classList.toggle("hidden", clips.length > 0);
-    clearBtn.classList.toggle("hidden", clips.length === 0);
-    count.textContent = clips.length ? `${clips.length} item${clips.length === 1 ? "" : "s"}` : "";
+    empty.classList.toggle("hidden", items.length > 0);
+    if (kind === active) updateHeader();
+  }
+
+  function updateHeader() {
+    const items = state[active];
+    clearBtn.classList.toggle("hidden", items.length === 0);
+    count.textContent = items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "";
+  }
+
+  function selectTab(kind, focus = true) {
+    active = kind;
+    for (const name of ["clips", "prompts"]) {
+      $(`${name}-tab`).setAttribute("aria-selected", String(name === kind));
+      $(`${name}-view`).hidden = name !== kind;
+    }
+    disarm();
+    updateHeader();
+    if (focus) (kind === "clips" ? input : promptTitle).focus();
   }
 
   async function refresh() {
     if (document.hidden) return;
-    try { clips = await api("GET", "/api/clips"); render(); } catch {}
+    try {
+      const [clips, prompts] = await Promise.all([api("GET", "/api/clips"), api("GET", "/api/prompts")]);
+      state.clips = clips;
+      state.prompts = prompts;
+      render("clips");
+      render("prompts");
+    } catch {}
   }
 
-  function grow() {
-    input.style.height = "auto";
-    input.style.height = input.scrollHeight + "px";
+  function grow(field) {
+    field.style.height = "auto";
+    field.style.height = field.scrollHeight + "px";
   }
 
   // Two-step: first click arms, second click within 3s clears.
@@ -273,9 +339,9 @@
       return;
     }
     disarm();
-    clips = [];
-    render();
-    api("DELETE", "/api/clips");
+    state[active] = [];
+    render(active);
+    api("DELETE", `/api/${active}`);
   };
   function disarm() {
     clearTimeout(clearBtn._t);
@@ -283,22 +349,52 @@
     clearBtn.textContent = "Clear all";
   }
 
-  input.addEventListener("input", grow);
+  async function saveFrom(field, kind) {
+    const text = field.value;
+    if (!text.trim()) return;
+    const body = { text };
+    if (kind === "prompts") {
+      if (!promptTitle.value.trim()) { promptTitle.focus(); return; }
+      body.title = promptTitle.value;
+    }
+    field.value = "";
+    if (kind === "prompts") promptTitle.value = "";
+    grow(field);
+    const item = await api("POST", `/api/${kind}`, body);
+    if (item && item.id) {
+      state[kind] = [item, ...state[kind].filter((entry) => entry.id !== item.id)];
+      render(kind);
+    }
+    if (kind === "prompts") promptTitle.focus();
+  }
+
+  input.addEventListener("input", () => grow(input));
+  promptInput.addEventListener("input", () => grow(promptInput));
   input.addEventListener("keydown", async (e) => {
     if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
     e.preventDefault();
-    const text = input.value;
-    if (!text.trim()) return;
-    input.value = "";
-    grow();
-    const clip = await api("POST", "/api/clips", { text });
-    if (clip && clip.id) { clips = [clip, ...clips.filter((c) => c.id !== clip.id)]; render(); }
+    await saveFrom(input, "clips");
+  });
+  promptTitle.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.isComposing) return;
+    e.preventDefault();
+    promptInput.focus();
+  });
+  promptInput.addEventListener("keydown", async (e) => {
+    if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+    e.preventDefault();
+    await saveFrom(promptInput, "prompts");
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "/" && document.activeElement !== input) { e.preventDefault(); input.focus(); }
+    if (e.key !== "/" || ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+    e.preventDefault();
+    (active === "clips" ? input : promptTitle).focus();
   });
+  $("clips-tab").onclick = () => selectTab("clips");
+  $("prompts-tab").onclick = () => selectTab("prompts");
   document.addEventListener("visibilitychange", refresh);
 
+  selectTab("clips", false);
   refresh();
   setInterval(refresh, 3000);
 </script>

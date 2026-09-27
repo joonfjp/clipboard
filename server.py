@@ -24,32 +24,40 @@ class Store:
     def __init__(self, path):
         self.path = path
         self.lock = threading.Lock()
-        self.clips = json.loads(path.read_text()) if path.exists() else []
+        data = json.loads(path.read_text()) if path.exists() else {}
+        # Older versions stored the clips as a bare list. Keep those entries
+        # when upgrading to the two-collection file format.
+        if isinstance(data, list):
+            data = {"clips": data, "prompts": []}
+        self.clips = data.get("clips", [])
+        self.prompts = data.get("prompts", [])
 
     def _save(self):
         tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.clips))
+        tmp.write_text(json.dumps({"clips": self.clips, "prompts": self.prompts}))
         os.replace(tmp, self.path)
 
-    def all(self):
+    def all(self, kind):
         with self.lock:
-            return list(self.clips)
+            return list(getattr(self, kind))
 
-    def add(self, text):
-        clip = {"id": uuid.uuid4().hex[:12], "text": text, "at": int(time.time() * 1000)}
+    def add(self, kind, text, title=None):
+        item = {"id": uuid.uuid4().hex[:12], "text": text, "at": int(time.time() * 1000)}
+        if title is not None:
+            item["title"] = title
         with self.lock:
-            self.clips.insert(0, clip)
+            getattr(self, kind).insert(0, item)
             self._save()
-        return clip
+        return item
 
-    def clear(self):
+    def clear(self, kind):
         with self.lock:
-            self.clips = []
+            setattr(self, kind, [])
             self._save()
 
-    def remove(self, clip_id):
+    def remove(self, kind, item_id):
         with self.lock:
-            self.clips = [c for c in self.clips if c["id"] != clip_id]
+            setattr(self, kind, [item for item in getattr(self, kind) if item["id"] != item_id])
             self._save()
 
 
@@ -72,33 +80,43 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/api/clips":
-            return self._json(200, self.store.all())
+            return self._json(200, self.store.all("clips"))
+        if self.path == "/api/prompts":
+            return self._json(200, self.store.all("prompts"))
         if self.path in STATIC:
             name, ctype = STATIC[self.path]
             return self._send(200, (ROOT / name).read_bytes(), ctype)
         self._json(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path != "/api/clips":
+        if self.path not in ("/api/clips", "/api/prompts"):
             return self._json(404, {"error": "not found"})
         length = int(self.headers.get("Content-Length", 0))
         if length > MAX_BODY:
             return self._json(413, {"error": "too large"})
         try:
-            text = json.loads(self.rfile.read(length))["text"]
+            data = json.loads(self.rfile.read(length))
+            text = data["text"]
         except (ValueError, KeyError, TypeError):
             return self._json(400, {"error": "bad request"})
         if not isinstance(text, str) or not text.strip():
             return self._json(400, {"error": "empty"})
-        self._json(201, self.store.add(text))
+        if self.path == "/api/prompts":
+            title = data.get("title")
+            if not isinstance(title, str) or not title.strip():
+                return self._json(400, {"error": "title required"})
+            return self._json(201, self.store.add("prompts", text, title.strip()))
+        self._json(201, self.store.add("clips", text))
 
     def do_DELETE(self):
-        if self.path == "/api/clips":
-            self.store.clear()
+        if self.path in ("/api/clips", "/api/prompts"):
+            kind = self.path.rsplit("/", 1)[-1]
+            self.store.clear(kind)
             return self._send(204)
-        if not self.path.startswith("/api/clips/"):
+        if not self.path.startswith(("/api/clips/", "/api/prompts/")):
             return self._json(404, {"error": "not found"})
-        self.store.remove(self.path.rsplit("/", 1)[-1])
+        kind = self.path.split("/")[2]
+        self.store.remove(kind, self.path.rsplit("/", 1)[-1])
         self._send(204)
 
 
